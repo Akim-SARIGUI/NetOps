@@ -1,0 +1,16 @@
+{
+  "name": "netops",
+  "private": true,
+  "description": "NetOps Infrastructure Management Platform",
+  "scripts": {
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "dev:api": "npm --prefix apps/api run dev",
+    "dev:web": "npm --prefix apps/web run dev",
+    "db:generate": "npm --prefix apps/api run db:generate",
+    "db:migrate": "npm --prefix apps/api run db:deploy",
+    "db:seed": "npm --prefix apps/api run db:seed",
+    "test:api": "npm --prefix apps/api test",
+    "verify": "node scripts/verify-platform.mjs"
+  }
+}

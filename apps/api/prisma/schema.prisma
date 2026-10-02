@@ -1,0 +1,1620 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Environment {
+  PRODUCTION
+  STAGING
+  LAB
+  DEV
+}
+
+enum RoleName {
+  SUPER_ADMIN
+  NETWORK_ADMIN
+  NETWORK_OPERATOR
+  AUDITOR
+  VIEWER
+}
+
+enum DeviceRole {
+  ROUTER
+  SWITCH
+  FIREWALL
+  SERVER
+  ACCESS_POINT
+  CLIENT
+}
+
+enum DeviceStatus {
+  PLANNED
+  ACTIVE
+  MAINTENANCE
+  OFFLINE
+  DECOMMISSIONED
+}
+
+enum InterfaceStatus {
+  UP
+  DOWN
+  ADMIN_DOWN
+}
+
+enum Duplex {
+  AUTO
+  FULL
+  HALF
+}
+
+enum VlanRole {
+  DATA
+  VOICE
+  MANAGEMENT
+  GUEST
+  SERVER
+  TRANSIT
+  NATIVE
+}
+
+enum SecurityZone {
+  TRUST
+  UNTRUST
+  DMZ
+  GUEST
+  MANAGEMENT
+  INTERNAL
+}
+
+enum VlanStatus {
+  ACTIVE
+  PLANNED
+  RESERVED
+  DEPRECATED
+}
+
+enum PortMode {
+  ACCESS
+  TRUNK
+}
+
+enum PortStatus {
+  UP
+  DOWN
+  ADMIN_DOWN
+  ERR_DISABLED
+}
+
+enum PoeStatus {
+  OFF
+  ON
+  FAULT
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique
+  name         String
+  passwordHash String   @map("password_hash")
+  isActive     Boolean  @default(true) @map("is_active")
+  isSuperAdmin Boolean  @default(false) @map("is_super_admin")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  memberships        Membership[]
+  auditEvents        AuditEvent[]
+  dnsChanges         DnsChange[]
+  changeLogs         ChangeLog[]
+  diagnosticSessions DiagnosticSession[]
+  labPromotions      LabPromotion[]
+
+  @@map("users")
+}
+
+model Organization {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  sites       Site[]
+  memberships Membership[]
+  devices     Device[]
+  ipNetworks  IpNetwork[]
+  ipAddresses IpAddress[]
+  dhcpServers DhcpServer[]
+  dnsServers  DnsServer[]
+  dnsZones    DnsZone[]
+  firewallZones FirewallZone[]
+  flowRules   FlowRule[]
+  acls        Acl[]
+  topologyPlacements TopologyPlacement[]
+  topologyMarkers    TopologyMarker[]
+  topologyLinks      TopologyLink[]
+  topologyDiscoveries TopologyDiscovery[]
+  monitoringTargets    MonitoringTarget[]
+  discoveryRuns        DiscoveryRun[]
+  automationPolicy     AutomationPolicy?
+  automationTemplates  AutomationTemplate[]
+  automationJobs       AutomationJob[]
+  changeRequests       ChangeRequest[]
+  configVersions       ConfigVersion[]
+  changeLogs           ChangeLog[]
+  diagnosticSessions   DiagnosticSession[]
+  labFabrics           LabFabric[]
+  labPromotions        LabPromotion[]
+
+  @@map("organizations")
+}
+
+model Membership {
+  id             String   @id @default(uuid()) @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  role           RoleName
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+  @@map("memberships")
+}
+
+model Site {
+  id             String      @id @default(uuid()) @db.Uuid
+  organizationId String      @map("organization_id") @db.Uuid
+  name           String
+  code           String
+  environment    Environment @default(PRODUCTION)
+  address        String?
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  buildings    Building[]
+  devices      Device[]
+  vlans        Vlan[]
+  ipNetworks   IpNetwork[]
+  dhcpServers  DhcpServer[]
+  dnsServers   DnsServer[]
+  topologyMarkers TopologyMarker[]
+  discoveryRuns   DiscoveryRun[]
+  labFabrics      LabFabric[]
+  labPromotions   LabPromotion[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@map("sites")
+}
+
+model Building {
+  id        String   @id @default(uuid()) @db.Uuid
+  siteId    String   @map("site_id") @db.Uuid
+  name      String
+  code      String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  site    Site     @relation(fields: [siteId], references: [id], onDelete: Restrict)
+  rooms   Room[]
+  devices Device[]
+
+  @@unique([siteId, code])
+  @@index([siteId])
+  @@map("buildings")
+}
+
+model Room {
+  id         String   @id @default(uuid()) @db.Uuid
+  buildingId String   @map("building_id") @db.Uuid
+  name       String
+  code       String
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  building Building @relation(fields: [buildingId], references: [id], onDelete: Restrict)
+  racks    Rack[]
+  devices  Device[]
+
+  @@unique([buildingId, code])
+  @@index([buildingId])
+  @@map("rooms")
+}
+
+model Rack {
+  id        String   @id @default(uuid()) @db.Uuid
+  roomId    String   @map("room_id") @db.Uuid
+  name      String
+  code      String
+  heightU   Int      @default(42) @map("height_u")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  room    Room     @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  devices Device[]
+
+  @@unique([roomId, code])
+  @@index([roomId])
+  @@map("racks")
+}
+
+model Device {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  siteId         String       @map("site_id") @db.Uuid
+  buildingId     String?      @map("building_id") @db.Uuid
+  roomId         String?      @map("room_id") @db.Uuid
+  rackId         String?      @map("rack_id") @db.Uuid
+  role           DeviceRole
+  hostname       String
+  managementIp   String?      @map("management_ip")
+  vendor         String?
+  model          String?
+  os             String?
+  osVersion      String?      @map("os_version")
+  serialNumber   String?      @map("serial_number")
+  status         DeviceStatus @default(PLANNED)
+  description    String?
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  site         Site               @relation(fields: [siteId], references: [id], onDelete: Restrict)
+  building     Building?          @relation(fields: [buildingId], references: [id], onDelete: Restrict)
+  room         Room?              @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  rack              Rack?              @relation(fields: [rackId], references: [id], onDelete: Restrict)
+  interfaces        NetworkInterface[]
+  switchPorts       SwitchPort[]       @relation("SwitchPorts")
+  connectedPorts    SwitchPort[]       @relation("ConnectedDevice")
+  dhcpServers       DhcpServer[]
+  dnsServers        DnsServer[]
+  layer3Interfaces  Layer3Interface[]
+  routes            Route[]
+  ospfProcess       OspfProcess?
+  acls              Acl[]
+  topologyPlacement TopologyPlacement?
+  topologySourceLinks TopologyLink[] @relation("TopologySourceDevice")
+  topologyTargetLinks TopologyLink[] @relation("TopologyTargetDevice")
+  monitoringTarget     MonitoringTarget?
+  discoveryMatches     DiscoveryFinding[] @relation("DiscoveryMatch")
+  discoveryImports     DiscoveryFinding[] @relation("DiscoveryImport")
+  automationJobs       AutomationJob[]
+  changeRequests       ChangeRequest[]
+  configVersions       ConfigVersion[]
+  changeLogs           ChangeLog[]
+  diagnosticSessions   DiagnosticSession[]
+
+  @@unique([organizationId, hostname])
+  @@unique([organizationId, managementIp])
+  @@unique([organizationId, serialNumber])
+  @@index([organizationId, role])
+  @@index([organizationId, status])
+  @@index([siteId])
+  @@index([rackId])
+  @@map("devices")
+}
+
+model NetworkInterface {
+  id          String           @id @default(uuid()) @db.Uuid
+  deviceId    String           @map("device_id") @db.Uuid
+  name        String
+  ipAddress   String?          @map("ip_address")
+  macAddress  String?          @map("mac_address")
+  speedMbps   Int?             @map("speed_mbps")
+  duplex      Duplex?
+  status      InterfaceStatus  @default(DOWN)
+  description String?
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  ipAllocation IpAddress?
+  dhcpRelays   DhcpRelay[]
+  layer3Children Layer3Interface[]
+
+  @@unique([deviceId, name])
+  @@index([deviceId])
+  @@index([macAddress])
+  @@map("network_interfaces")
+}
+
+model Vlan {
+  id           String       @id @default(uuid()) @db.Uuid
+  siteId       String       @map("site_id") @db.Uuid
+  vid          Int
+  name         String
+  description  String?
+  role         VlanRole
+  securityZone SecurityZone @map("security_zone")
+  status       VlanStatus   @default(ACTIVE)
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  site         Site             @relation(fields: [siteId], references: [id], onDelete: Restrict)
+  accessPorts  SwitchPort[]     @relation("AccessVlan")
+  nativePorts  SwitchPort[]     @relation("NativeVlan")
+  trunkPorts   SwitchPortVlan[]
+  subnets      IpSubnet[]
+  layer3Interfaces Layer3Interface[]
+  zoneMembership   FirewallZoneVlan?
+  topologyLinks    TopologyLink[]
+
+  @@unique([siteId, vid])
+  @@unique([siteId, name])
+  @@index([siteId, status])
+  @@map("vlans")
+}
+
+model SwitchPort {
+  id                 String     @id @default(uuid()) @db.Uuid
+  deviceId           String     @map("device_id") @db.Uuid
+  name               String
+  status             PortStatus @default(DOWN)
+  mode               PortMode
+  accessVlanId       String?    @map("access_vlan_id") @db.Uuid
+  nativeVlanId       String?    @map("native_vlan_id") @db.Uuid
+  speedMbps          Int?       @map("speed_mbps")
+  duplex             Duplex?
+  description        String?
+  connectedDeviceId  String?    @map("connected_device_id") @db.Uuid
+  macAddress         String?    @map("mac_address")
+  poe                PoeStatus  @default(OFF)
+  createdAt          DateTime   @default(now()) @map("created_at")
+  updatedAt          DateTime   @updatedAt @map("updated_at")
+
+  device          Device           @relation("SwitchPorts", fields: [deviceId], references: [id], onDelete: Restrict)
+  accessVlan      Vlan?            @relation("AccessVlan", fields: [accessVlanId], references: [id], onDelete: Restrict)
+  nativeVlan      Vlan?            @relation("NativeVlan", fields: [nativeVlanId], references: [id], onDelete: Restrict)
+  connectedDevice Device?          @relation("ConnectedDevice", fields: [connectedDeviceId], references: [id], onDelete: Restrict)
+  allowedVlans    SwitchPortVlan[]
+
+  @@unique([deviceId, name])
+  @@index([deviceId])
+  @@index([accessVlanId])
+  @@index([nativeVlanId])
+  @@index([macAddress])
+  @@map("switch_ports")
+}
+
+model SwitchPortVlan {
+  portId String @map("port_id") @db.Uuid
+  vlanId String @map("vlan_id") @db.Uuid
+
+  port SwitchPort @relation(fields: [portId], references: [id], onDelete: Cascade)
+  vlan Vlan       @relation(fields: [vlanId], references: [id], onDelete: Restrict)
+
+  @@id([portId, vlanId])
+  @@index([vlanId])
+  @@map("switch_port_vlans")
+}
+
+enum IpFamily {
+  IPV4
+  IPV6
+}
+
+enum IpAddressRole {
+  GATEWAY
+  ALLOCATED
+  RESERVED
+}
+
+model IpNetwork {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  siteId         String   @map("site_id") @db.Uuid
+  name           String
+  description    String?
+  cidr           String
+  family         IpFamily
+  prefixLength   Int      @map("prefix_length")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  site         Site         @relation(fields: [siteId], references: [id], onDelete: Restrict)
+  subnets      IpSubnet[]
+
+  @@unique([siteId, cidr])
+  @@unique([siteId, name])
+  @@index([organizationId, family])
+  @@map("ip_networks")
+}
+
+model IpSubnet {
+  id               String   @id @default(uuid()) @db.Uuid
+  networkId        String   @map("network_id") @db.Uuid
+  vlanId           String   @map("vlan_id") @db.Uuid
+  name             String
+  description      String?
+  cidr             String
+  family           IpFamily
+  prefixLength     Int      @map("prefix_length")
+  gatewayAddressId String?  @unique @map("gateway_address_id") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  network        IpNetwork  @relation(fields: [networkId], references: [id], onDelete: Restrict)
+  vlan           Vlan       @relation(fields: [vlanId], references: [id], onDelete: Restrict)
+  gatewayAddress IpAddress? @relation("GatewayAddress", fields: [gatewayAddressId], references: [id], onDelete: Restrict)
+  addresses      IpAddress[] @relation("SubnetAddresses")
+  dhcpScope      DhcpScope?
+  dhcpRelays     DhcpRelay[]
+  dnsZone        DnsZone?
+  layer3Interfaces Layer3Interface[]
+
+  @@unique([networkId, cidr])
+  @@unique([networkId, name])
+  @@index([vlanId])
+  @@map("ip_subnets")
+}
+
+model IpAddress {
+  id             String        @id @default(uuid()) @db.Uuid
+  organizationId String        @map("organization_id") @db.Uuid
+  subnetId       String        @map("subnet_id") @db.Uuid
+  address        String
+  role           IpAddressRole
+  interfaceId    String?       @unique @map("interface_id") @db.Uuid
+  description    String?
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  subnet       IpSubnet          @relation("SubnetAddresses", fields: [subnetId], references: [id], onDelete: Restrict)
+  gatewayFor   IpSubnet?         @relation("GatewayAddress")
+  interface    NetworkInterface? @relation(fields: [interfaceId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, address])
+  @@index([subnetId, role])
+  @@map("ip_addresses")
+}
+
+enum DhcpServerStatus {
+  PLANNED
+  ACTIVE
+  DISABLED
+}
+
+enum DhcpLeaseState {
+  ACTIVE
+  EXPIRED
+  RELEASED
+}
+
+enum DhcpLeaseOrigin {
+  SIMULATION
+}
+
+model DhcpServer {
+  id             String           @id @default(uuid()) @db.Uuid
+  organizationId String           @map("organization_id") @db.Uuid
+  siteId         String           @map("site_id") @db.Uuid
+  deviceId       String?          @map("device_id") @db.Uuid
+  name           String
+  description    String?
+  address        String?
+  status         DhcpServerStatus @default(PLANNED)
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  site         Site         @relation(fields: [siteId], references: [id], onDelete: Restrict)
+  device       Device?      @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  scopes       DhcpScope[]
+  relays       DhcpRelay[]
+
+  @@unique([siteId, name])
+  @@index([organizationId])
+  @@index([deviceId])
+  @@map("dhcp_servers")
+}
+
+model DhcpScope {
+  id           String   @id @default(uuid()) @db.Uuid
+  subnetId     String   @unique @map("subnet_id") @db.Uuid
+  serverId     String   @map("server_id") @db.Uuid
+  gateway      String
+  dnsServers   String[] @default([]) @map("dns_servers")
+  domain       String?
+  leaseSeconds Int      @map("lease_seconds")
+  enabled      Boolean  @default(true)
+  description  String?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  subnet       IpSubnet          @relation(fields: [subnetId], references: [id], onDelete: Restrict)
+  server       DhcpServer        @relation(fields: [serverId], references: [id], onDelete: Restrict)
+  pools        DhcpPool[]
+  exclusions   DhcpExclusion[]
+  reservations DhcpReservation[]
+  leases       DhcpLease[]
+
+  @@index([serverId])
+  @@map("dhcp_scopes")
+}
+
+model DhcpPool {
+  id           String   @id @default(uuid()) @db.Uuid
+  scopeId      String   @map("scope_id") @db.Uuid
+  startAddress String   @map("start_address")
+  endAddress   String   @map("end_address")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  scope DhcpScope @relation(fields: [scopeId], references: [id], onDelete: Cascade)
+
+  @@index([scopeId])
+  @@map("dhcp_pools")
+}
+
+model DhcpExclusion {
+  id           String   @id @default(uuid()) @db.Uuid
+  scopeId      String   @map("scope_id") @db.Uuid
+  startAddress String   @map("start_address")
+  endAddress   String   @map("end_address")
+  reason       String?
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  scope DhcpScope @relation(fields: [scopeId], references: [id], onDelete: Cascade)
+
+  @@index([scopeId])
+  @@map("dhcp_exclusions")
+}
+
+model DhcpReservation {
+  id          String   @id @default(uuid()) @db.Uuid
+  scopeId     String   @map("scope_id") @db.Uuid
+  address     String
+  macAddress  String   @map("mac_address")
+  hostname    String?
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  scope DhcpScope @relation(fields: [scopeId], references: [id], onDelete: Cascade)
+
+  @@unique([scopeId, address])
+  @@unique([scopeId, macAddress])
+  @@index([scopeId])
+  @@map("dhcp_reservations")
+}
+
+model DhcpLease {
+  id         String          @id @default(uuid()) @db.Uuid
+  scopeId    String          @map("scope_id") @db.Uuid
+  address    String
+  macAddress String          @map("mac_address")
+  hostname   String?
+  state      DhcpLeaseState  @default(ACTIVE)
+  origin     DhcpLeaseOrigin @default(SIMULATION)
+  startsAt   DateTime        @map("starts_at")
+  expiresAt  DateTime        @map("expires_at")
+  createdAt  DateTime        @default(now()) @map("created_at")
+  updatedAt  DateTime        @updatedAt @map("updated_at")
+
+  scope DhcpScope @relation(fields: [scopeId], references: [id], onDelete: Cascade)
+
+  @@unique([scopeId, address])
+  @@index([scopeId, state])
+  @@index([macAddress])
+  @@map("dhcp_leases")
+}
+
+model DhcpRelay {
+  id            String   @id @default(uuid()) @db.Uuid
+  subnetId      String   @map("subnet_id") @db.Uuid
+  serverId      String   @map("server_id") @db.Uuid
+  interfaceId   String?  @map("interface_id") @db.Uuid
+  helperAddress String   @map("helper_address")
+  description   String?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  subnet    IpSubnet          @relation(fields: [subnetId], references: [id], onDelete: Restrict)
+  server    DhcpServer        @relation(fields: [serverId], references: [id], onDelete: Restrict)
+  interface NetworkInterface? @relation(fields: [interfaceId], references: [id], onDelete: Restrict)
+
+  @@unique([subnetId, serverId])
+  @@index([serverId])
+  @@index([interfaceId])
+  @@map("dhcp_relays")
+}
+
+enum DnsServerStatus {
+  PLANNED
+  ACTIVE
+  DISABLED
+}
+
+enum DnsZoneKind {
+  FORWARD
+  REVERSE
+}
+
+enum DnsRecordType {
+  A
+  AAAA
+  CNAME
+  MX
+  NS
+  PTR
+  TXT
+  SRV
+}
+
+model DnsServer {
+  id             String          @id @default(uuid()) @db.Uuid
+  organizationId String          @map("organization_id") @db.Uuid
+  siteId         String          @map("site_id") @db.Uuid
+  deviceId       String?         @map("device_id") @db.Uuid
+  name           String
+  description    String?
+  address        String?
+  status         DnsServerStatus @default(PLANNED)
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  site         Site         @relation(fields: [siteId], references: [id], onDelete: Restrict)
+  device       Device?      @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  zones        DnsZone[]
+
+  @@unique([siteId, name])
+  @@index([organizationId])
+  @@index([deviceId])
+  @@map("dns_servers")
+}
+
+model DnsZone {
+  id             String      @id @default(uuid()) @db.Uuid
+  organizationId String      @map("organization_id") @db.Uuid
+  serverId       String      @map("server_id") @db.Uuid
+  subnetId       String?     @unique @map("subnet_id") @db.Uuid
+  kind           DnsZoneKind
+  name           String
+  ttl            Int         @default(3600)
+  enabled        Boolean     @default(true)
+  description    String?
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  server       DnsServer    @relation(fields: [serverId], references: [id], onDelete: Restrict)
+  subnet       IpSubnet?    @relation(fields: [subnetId], references: [id], onDelete: Restrict)
+  records      DnsRecord[]
+  changes      DnsChange[]
+
+  @@unique([organizationId, name])
+  @@index([serverId])
+  @@map("dns_zones")
+}
+
+model DnsRecord {
+  id        String        @id @default(uuid()) @db.Uuid
+  zoneId    String        @map("zone_id") @db.Uuid
+  name      String
+  type      DnsRecordType
+  ttl       Int?
+  rdata     String
+  priority  Int?
+  weight    Int?
+  port      Int?
+  createdAt DateTime      @default(now()) @map("created_at")
+  updatedAt DateTime      @updatedAt @map("updated_at")
+
+  zone DnsZone @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+
+  @@unique([zoneId, name, type, rdata])
+  @@index([zoneId, name])
+  @@map("dns_records")
+}
+
+model DnsChange {
+  id        String   @id @default(uuid()) @db.Uuid
+  zoneId    String   @map("zone_id") @db.Uuid
+  actorId   String?  @map("actor_id") @db.Uuid
+  action    String
+  summary   String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  zone  DnsZone @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+  actor User?   @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([zoneId, createdAt])
+  @@map("dns_changes")
+}
+
+enum Layer3Kind {
+  PHYSICAL
+  SVI
+  SUBINTERFACE
+}
+
+enum Layer3Status {
+  PLANNED
+  ACTIVE
+  DISABLED
+}
+
+enum RouteProtocol {
+  CONNECTED
+  STATIC
+  DEFAULT
+  OSPF
+}
+
+enum RouteStatus {
+  ACTIVE
+  PLANNED
+  DISABLED
+}
+
+model Layer3Interface {
+  id                String        @id @default(uuid()) @db.Uuid
+  deviceId          String        @map("device_id") @db.Uuid
+  name              String
+  kind              Layer3Kind
+  vlanId            String?       @map("vlan_id") @db.Uuid
+  parentInterfaceId String?       @map("parent_interface_id") @db.Uuid
+  address           String
+  subnetId          String        @map("subnet_id") @db.Uuid
+  status            Layer3Status  @default(PLANNED)
+  description       String?
+  ospfAreaId        String?       @map("ospf_area_id") @db.Uuid
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+
+  device          Device            @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  vlan            Vlan?             @relation(fields: [vlanId], references: [id], onDelete: Restrict)
+  parentInterface NetworkInterface? @relation(fields: [parentInterfaceId], references: [id], onDelete: Restrict)
+  subnet          IpSubnet          @relation(fields: [subnetId], references: [id], onDelete: Restrict)
+  ospfArea        OspfArea?         @relation(fields: [ospfAreaId], references: [id], onDelete: SetNull)
+  routes          Route[]
+
+  @@unique([deviceId, name])
+  @@index([vlanId])
+  @@index([subnetId])
+  @@index([parentInterfaceId])
+  @@index([ospfAreaId])
+  @@map("layer3_interfaces")
+}
+
+model Route {
+  id                  String        @id @default(uuid()) @db.Uuid
+  deviceId            String        @map("device_id") @db.Uuid
+  destination         String
+  prefixLength        Int           @map("prefix_length")
+  cidr                String
+  gateway             String?
+  layer3InterfaceId   String?       @map("layer3_interface_id") @db.Uuid
+  metric              Int
+  protocol            RouteProtocol
+  status              RouteStatus   @default(ACTIVE)
+  description         String?
+  createdAt           DateTime      @default(now()) @map("created_at")
+  updatedAt           DateTime      @updatedAt @map("updated_at")
+
+  device           Device           @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  layer3Interface  Layer3Interface? @relation(fields: [layer3InterfaceId], references: [id], onDelete: Restrict)
+
+  @@unique([deviceId, cidr])
+  @@index([layer3InterfaceId])
+  @@index([deviceId, protocol])
+  @@map("routes")
+}
+
+model OspfProcess {
+  id          String       @id @default(uuid()) @db.Uuid
+  deviceId    String       @unique @map("device_id") @db.Uuid
+  processId   Int          @map("process_id")
+  routerId    String       @map("router_id")
+  status      Layer3Status @default(PLANNED)
+  description String?
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  device Device     @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  areas  OspfArea[]
+
+  @@map("ospf_processes")
+}
+
+model OspfArea {
+  id        String   @id @default(uuid()) @db.Uuid
+  processId String   @map("process_id") @db.Uuid
+  areaId    String   @map("area_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  process    OspfProcess       @relation(fields: [processId], references: [id], onDelete: Cascade)
+  interfaces Layer3Interface[]
+
+  @@unique([processId, areaId])
+  @@map("ospf_areas")
+}
+
+enum PolicyAction {
+  ALLOW
+  DENY
+}
+
+enum PolicyProtocol {
+  ANY
+  TCP
+  UDP
+  ICMP
+}
+
+enum AclStatus {
+  PLANNED
+  ACTIVE
+  DISABLED
+}
+
+model FirewallZone {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  name           String
+  description    String?
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  vlans        FirewallZoneVlan[]
+
+  @@unique([organizationId, name])
+  @@map("firewall_zones")
+}
+
+model FirewallZoneVlan {
+  id        String   @id @default(uuid()) @db.Uuid
+  zoneId    String   @map("zone_id") @db.Uuid
+  vlanId    String   @unique @map("vlan_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  zone FirewallZone @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+  vlan Vlan         @relation(fields: [vlanId], references: [id], onDelete: Restrict)
+
+  @@index([zoneId])
+  @@map("firewall_zone_vlans")
+}
+
+model FlowRule {
+  id              String         @id @default(uuid()) @db.Uuid
+  organizationId  String         @map("organization_id") @db.Uuid
+  priority        Int
+  source          String
+  destination     String
+  protocol        PolicyProtocol @default(ANY)
+  sourcePort      String?        @map("source_port")
+  destinationPort String?        @map("destination_port")
+  action          PolicyAction
+  logging         Boolean        @default(false)
+  enabled         Boolean        @default(true)
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, priority])
+  @@index([organizationId, enabled])
+  @@map("flow_rules")
+}
+
+model Acl {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  deviceId       String?   @map("device_id") @db.Uuid
+  name           String
+  description    String?
+  status         AclStatus @default(PLANNED)
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  device       Device?      @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  rules        AclRule[]
+
+  @@unique([organizationId, name])
+  @@index([deviceId])
+  @@map("acls")
+}
+
+model AclRule {
+  id              String         @id @default(uuid()) @db.Uuid
+  aclId           String         @map("acl_id") @db.Uuid
+  priority        Int
+  source          String
+  destination     String
+  protocol        PolicyProtocol @default(ANY)
+  sourcePort      String?        @map("source_port")
+  destinationPort String?        @map("destination_port")
+  action          PolicyAction
+  logging         Boolean        @default(false)
+  enabled         Boolean        @default(true)
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  acl Acl @relation(fields: [aclId], references: [id], onDelete: Cascade)
+
+  @@unique([aclId, priority])
+  @@map("acl_rules")
+}
+
+enum TopologyMarkerKind {
+  INTERNET
+}
+
+enum TopologyLinkStatus {
+  UP
+  DOWN
+  ADMIN_DOWN
+  UNKNOWN
+}
+
+enum TopologyOrigin {
+  MANUAL
+  SIMULATION
+}
+
+enum DiscoveryProtocol {
+  LLDP
+  CDP
+}
+
+enum DiscoveryStatus {
+  PLANNED
+}
+
+model TopologyPlacement {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  deviceId       String   @unique @map("device_id") @db.Uuid
+  x              Float
+  y              Float
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  device       Device       @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("topology_placements")
+}
+
+model TopologyMarker {
+  id             String             @id @default(uuid()) @db.Uuid
+  organizationId String             @map("organization_id") @db.Uuid
+  siteId         String             @map("site_id") @db.Uuid
+  kind           TopologyMarkerKind
+  label          String
+  simulated      Boolean            @default(true)
+  x              Float
+  y              Float
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  site         Site         @relation(fields: [siteId], references: [id], onDelete: Restrict)
+  sourceLinks  TopologyLink[] @relation("TopologySourceMarker")
+  targetLinks  TopologyLink[] @relation("TopologyTargetMarker")
+
+  @@unique([siteId, kind])
+  @@index([organizationId])
+  @@map("topology_markers")
+}
+
+model TopologyLink {
+  id             String             @id @default(uuid()) @db.Uuid
+  organizationId String             @map("organization_id") @db.Uuid
+  sourceDeviceId String?            @map("source_device_id") @db.Uuid
+  targetDeviceId String?            @map("target_device_id") @db.Uuid
+  sourceMarkerId String?            @map("source_marker_id") @db.Uuid
+  targetMarkerId String?            @map("target_marker_id") @db.Uuid
+  sourcePort     String?            @map("source_port")
+  targetPort     String?            @map("target_port")
+  speedMbps      Int?               @map("speed_mbps")
+  status         TopologyLinkStatus @default(UNKNOWN)
+  vlanId         String?            @map("vlan_id") @db.Uuid
+  trafficBps     Int?               @map("traffic_bps")
+  origin         TopologyOrigin
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  sourceDevice Device?         @relation("TopologySourceDevice", fields: [sourceDeviceId], references: [id], onDelete: Restrict)
+  targetDevice Device?         @relation("TopologyTargetDevice", fields: [targetDeviceId], references: [id], onDelete: Restrict)
+  sourceMarker TopologyMarker? @relation("TopologySourceMarker", fields: [sourceMarkerId], references: [id], onDelete: Restrict)
+  targetMarker TopologyMarker? @relation("TopologyTargetMarker", fields: [targetMarkerId], references: [id], onDelete: Restrict)
+  vlan         Vlan?           @relation(fields: [vlanId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId])
+  @@index([sourceDeviceId])
+  @@index([targetDeviceId])
+  @@index([vlanId])
+  @@map("topology_links")
+}
+
+model TopologyDiscovery {
+  id             String             @id @default(uuid()) @db.Uuid
+  organizationId String             @map("organization_id") @db.Uuid
+  protocol       DiscoveryProtocol
+  status         DiscoveryStatus    @default(PLANNED)
+  createdAt      DateTime           @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, protocol])
+  @@map("topology_discoveries")
+}
+
+enum CollectorMode {
+  SIMULATION
+  ICMP
+  SNMP
+}
+
+enum MetricKind {
+  AVAILABILITY
+  CPU
+  RAM
+  INTERFACE
+  TRAFFIC
+  LATENCY
+  PACKET_LOSS
+  UPTIME
+  ERRORS
+}
+
+enum MetricOrigin {
+  SIMULATION
+  INVENTORY
+  MEASURED
+}
+
+model MonitoringTarget {
+  id                   String        @id @default(uuid()) @db.Uuid
+  organizationId       String        @map("organization_id") @db.Uuid
+  deviceId             String        @unique @map("device_id") @db.Uuid
+  mode                 CollectorMode @default(SIMULATION)
+  packetLossThreshold  Float         @default(2) @map("packet_loss_threshold")
+  enabled              Boolean       @default(true)
+  createdAt            DateTime      @default(now()) @map("created_at")
+  updatedAt            DateTime      @updatedAt @map("updated_at")
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  device       Device         @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  samples      MetricSample[]
+
+  @@index([organizationId])
+  @@map("monitoring_targets")
+}
+
+model MetricSample {
+  id            String       @id @default(uuid()) @db.Uuid
+  targetId      String       @map("target_id") @db.Uuid
+  kind          MetricKind
+  interfaceName String?      @map("interface_name")
+  value         Float
+  unit          String
+  origin        MetricOrigin
+  observedAt    DateTime     @default(now()) @map("observed_at")
+
+  target MonitoringTarget @relation(fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@index([targetId, kind, observedAt])
+  @@map("metric_samples")
+}
+
+enum DiscoveryConnectorKind {
+  SIMULATION
+  ICMP
+  ARP
+  SNMP
+  LLDP
+  CDP
+  SSH
+}
+
+enum DiscoveryRunStatus {
+  DISCOVERY
+  REVIEW
+  APPROVED
+  IMPORTED
+}
+
+enum DiscoveryVerdict {
+  DISCOVERED
+  UNKNOWN
+  MATCHED
+  CONFLICT
+}
+
+enum DiscoveryDecision {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+model DiscoveryRun {
+  id             String             @id @default(uuid()) @db.Uuid
+  organizationId String             @map("organization_id") @db.Uuid
+  siteId         String?            @map("site_id") @db.Uuid
+  label          String
+  status         DiscoveryRunStatus @default(DISCOVERY)
+  simulated      Boolean            @default(true)
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  site         Site?              @relation(fields: [siteId], references: [id], onDelete: Restrict)
+  probes       DiscoveryProbe[]
+  findings     DiscoveryFinding[]
+
+  @@index([organizationId, createdAt])
+  @@map("discovery_runs")
+}
+
+model DiscoveryProbe {
+  id        String                 @id @default(uuid()) @db.Uuid
+  runId     String                 @map("run_id") @db.Uuid
+  connector DiscoveryConnectorKind
+  available Boolean
+  message   String
+
+  run DiscoveryRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, connector])
+  @@map("discovery_probes")
+}
+
+model DiscoveryFinding {
+  id               String            @id @default(uuid()) @db.Uuid
+  runId            String            @map("run_id") @db.Uuid
+  position         Int
+  verdict          DiscoveryVerdict
+  decision         DiscoveryDecision @default(PENDING)
+  simulated        Boolean           @default(true)
+  hostname         String?
+  ipAddress        String?           @map("ip_address")
+  macAddress       String?           @map("mac_address")
+  role             DeviceRole?
+  interfaces       Json
+  ports            Json
+  vlans            Json
+  neighbors        Json
+  conflictReason   String?           @map("conflict_reason")
+  matchedDeviceId  String?           @map("matched_device_id") @db.Uuid
+  importedDeviceId String?           @map("imported_device_id") @db.Uuid
+
+  run            DiscoveryRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  matchedDevice  Device?      @relation("DiscoveryMatch", fields: [matchedDeviceId], references: [id], onDelete: Restrict)
+  importedDevice Device?      @relation("DiscoveryImport", fields: [importedDeviceId], references: [id], onDelete: Restrict)
+
+  @@index([runId, position])
+  @@index([matchedDeviceId])
+  @@index([importedDeviceId])
+  @@map("discovery_findings")
+}
+
+enum AutomationKind {
+  BANNER
+  INTERFACE
+  VLAN
+  ROUTING
+  FIREWALL
+}
+
+enum AutomationIntegration {
+  SIMULATION
+  SSH
+  ANSIBLE
+  VENDOR_API
+  SNMP
+}
+
+enum AutomationStage {
+  DESIRED
+  VALIDATION
+  GENERATE
+  DIFF
+  DRY_RUN
+  APPROVAL
+  BACKUP
+  DEPLOYMENT
+  VERIFICATION
+}
+
+enum AutomationAuthorization {
+  NONE
+  EXPLICIT
+  POLICY
+  WORKFLOW
+}
+
+model AutomationPolicy {
+  id                String   @id @default(uuid()) @db.Uuid
+  organizationId    String   @unique @map("organization_id") @db.Uuid
+  automaticCritical Boolean  @default(false) @map("automatic_critical")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@map("automation_policies")
+}
+
+model AutomationTemplate {
+  id             String         @id @default(uuid()) @db.Uuid
+  organizationId String         @map("organization_id") @db.Uuid
+  name           String
+  kind           AutomationKind
+  body           String
+  critical       Boolean
+  enabled        Boolean        @default(true)
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  jobs         AutomationJob[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+  @@map("automation_templates")
+}
+
+model AutomationJob {
+  id                String                    @id @default(uuid()) @db.Uuid
+  organizationId    String                    @map("organization_id") @db.Uuid
+  deviceId          String                    @map("device_id") @db.Uuid
+  templateId        String                    @map("template_id") @db.Uuid
+  label             String
+  integration       AutomationIntegration
+  stage             AutomationStage           @default(DESIRED)
+  desiredState      Json                      @map("desired_state")
+  variables         Json
+  generatedConfig   String?                   @map("generated_config")
+  diffText          String?                   @map("diff_text")
+  changed           Boolean                   @default(false)
+  critical          Boolean                   @default(false)
+  authorization     AutomationAuthorization   @default(NONE)
+  dryRunReport      String?                   @map("dry_run_report")
+  backupReport      String?                   @map("backup_report")
+  executionReport   String?                   @map("execution_report")
+  verificationReport String?                  @map("verification_report")
+  pushed            Boolean                   @default(false)
+  stored            Boolean                   @default(false)
+  verified          Boolean?
+  deviceQueried     Boolean                   @default(false) @map("device_queried")
+  createdAt         DateTime                  @default(now()) @map("created_at")
+  updatedAt         DateTime                  @updatedAt @map("updated_at")
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  device       Device             @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  template     AutomationTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, createdAt])
+  @@index([deviceId])
+  @@map("automation_jobs")
+}
+
+enum ChangePhase {
+  OPEN
+  BACKED_UP
+  DEPLOYED
+  VERIFIED
+  FAILED
+  ROLLED_BACK
+  ROLLBACK_VERIFIED
+  INCIDENT
+}
+
+enum ChangeResult {
+  RECORDED
+  STORED
+  FAILED
+  VERIFIED
+  ROLLED_BACK
+  INCIDENT
+}
+
+enum ConfigOrigin {
+  BACKUP
+  CHANGE
+  ROLLBACK
+}
+
+enum DeploymentKind {
+  CHANGE
+  ROLLBACK
+}
+
+model ChangeRequest {
+  id               String                  @id @default(uuid()) @db.Uuid
+  organizationId   String                  @map("organization_id") @db.Uuid
+  deviceId         String                  @map("device_id") @db.Uuid
+  title            String
+  important        Boolean                 @default(true)
+  integration      AutomationIntegration
+  phase            ChangePhase             @default(OPEN)
+  proposedContent  String                  @map("proposed_content")
+  diffText         String?                 @map("diff_text")
+  createdAt        DateTime                @default(now()) @map("created_at")
+  updatedAt        DateTime                @updatedAt @map("updated_at")
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  device       Device             @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  versions     ConfigVersion[]
+  backup       ConfigBackup?
+  deployments  ChangeDeployment[]
+  incident     ChangeIncident?
+  logs         ChangeLog[]
+
+  @@unique([organizationId, title])
+  @@index([organizationId, createdAt])
+  @@index([deviceId])
+  @@map("change_requests")
+}
+
+model ConfigVersion {
+  id              String       @id @default(uuid()) @db.Uuid
+  organizationId  String       @map("organization_id") @db.Uuid
+  deviceId        String       @map("device_id") @db.Uuid
+  changeRequestId String       @map("change_request_id") @db.Uuid
+  number          Int
+  content         String
+  origin          ConfigOrigin
+  simulated       Boolean      @default(true)
+  createdAt       DateTime     @default(now()) @map("created_at")
+
+  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  device        Device        @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  changeRequest ChangeRequest @relation(fields: [changeRequestId], references: [id], onDelete: Cascade)
+  backup        ConfigBackup?
+  fromDeployments ChangeDeployment[] @relation("DeploymentFrom")
+  toDeployments   ChangeDeployment[] @relation("DeploymentTo")
+
+  @@unique([deviceId, number])
+  @@index([changeRequestId])
+  @@map("config_versions")
+}
+
+model ConfigBackup {
+  id              String   @id @default(uuid()) @db.Uuid
+  changeRequestId String   @unique @map("change_request_id") @db.Uuid
+  versionId       String   @unique @map("version_id") @db.Uuid
+  deviceRead      Boolean  @default(false) @map("device_read")
+  notice          String
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  changeRequest ChangeRequest @relation(fields: [changeRequestId], references: [id], onDelete: Cascade)
+  version       ConfigVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@map("config_backups")
+}
+
+model ChangeDeployment {
+  id              String         @id @default(uuid()) @db.Uuid
+  changeRequestId String         @map("change_request_id") @db.Uuid
+  kind            DeploymentKind
+  fromVersionId   String?        @map("from_version_id") @db.Uuid
+  toVersionId     String?        @map("to_version_id") @db.Uuid
+  result          ChangeResult
+  pushed          Boolean        @default(false)
+  report          String
+  createdAt       DateTime       @default(now()) @map("created_at")
+
+  changeRequest ChangeRequest  @relation(fields: [changeRequestId], references: [id], onDelete: Cascade)
+  fromVersion   ConfigVersion? @relation("DeploymentFrom", fields: [fromVersionId], references: [id], onDelete: SetNull)
+  toVersion     ConfigVersion? @relation("DeploymentTo", fields: [toVersionId], references: [id], onDelete: SetNull)
+
+  @@index([changeRequestId])
+  @@map("change_deployments")
+}
+
+model ChangeIncident {
+  id              String   @id @default(uuid()) @db.Uuid
+  changeRequestId String   @unique @map("change_request_id") @db.Uuid
+  summary         String
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  changeRequest ChangeRequest @relation(fields: [changeRequestId], references: [id], onDelete: Cascade)
+
+  @@map("change_incidents")
+}
+
+model ChangeLog {
+  id              String       @id @default(uuid()) @db.Uuid
+  organizationId  String       @map("organization_id") @db.Uuid
+  changeRequestId String       @map("change_request_id") @db.Uuid
+  actorId         String       @map("actor_id") @db.Uuid
+  deviceId        String       @map("device_id") @db.Uuid
+  action          String
+  occurredAt      DateTime     @default(now()) @map("occurred_at")
+  oldConfig       String       @default("") @map("old_config")
+  newConfig       String       @default("") @map("new_config")
+  result          ChangeResult
+  sourceAddress   String       @map("source_address")
+
+  changeRequest ChangeRequest @relation(fields: [changeRequestId], references: [id], onDelete: Cascade)
+  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  actor         User          @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  device        Device        @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+
+  @@index([changeRequestId, occurredAt])
+  @@index([deviceId])
+  @@map("change_logs")
+}
+
+enum DiagnosticTool {
+  GUIDE
+  PING
+  TRACEROUTE
+  DNS
+  TCP
+  ARP
+  ROUTE
+  HTTP
+  PORT
+}
+
+enum DiagnosticMode {
+  INVENTORY
+  LIVE
+}
+
+model DiagnosticSession {
+  id             String          @id @default(uuid()) @db.Uuid
+  organizationId String          @map("organization_id") @db.Uuid
+  deviceId       String          @map("device_id") @db.Uuid
+  actorId        String          @map("actor_id") @db.Uuid
+  tool           DiagnosticTool
+  mode           DiagnosticMode
+  createdAt      DateTime        @default(now()) @map("created_at")
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  device       Device            @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  actor        User              @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  checks       DiagnosticCheck[]
+
+  @@index([organizationId, createdAt])
+  @@index([deviceId])
+  @@map("diagnostic_sessions")
+}
+
+model DiagnosticCheck {
+  id               String  @id @default(uuid()) @db.Uuid
+  sessionId        String  @map("session_id") @db.Uuid
+  rank             Int
+  step             String
+  label            String
+  available        Boolean @default(true)
+  fact             String
+  observation      String
+  possibleCause    String  @map("possible_cause")
+  recommendedCheck String  @map("recommended_check")
+
+  session DiagnosticSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, rank])
+  @@map("diagnostic_checks")
+}
+
+enum LabRole {
+  ROUTER
+  SWITCH
+  FIREWALL
+  SERVER
+  CLIENT
+}
+
+enum LabScenarioKind {
+  VLAN
+  DHCP
+  DNS
+  ROUTING
+  ACL
+  CONNECTIVITY
+}
+
+enum PromotionPhase {
+  PREPARED
+  VALIDATED
+  PROMOTED
+}
+
+model LabFabric {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  siteId         String   @unique @map("site_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  site         Site            @relation(fields: [siteId], references: [id], onDelete: Restrict)
+  nodes        LabNode[]
+  scenarios    LabScenario[]
+  promotions   LabPromotion[]
+
+  @@index([organizationId])
+  @@map("lab_fabrics")
+}
+
+model LabNode {
+  id       String  @id @default(uuid()) @db.Uuid
+  fabricId String  @map("fabric_id") @db.Uuid
+  role     LabRole
+  hostname String
+  address  String
+
+  fabric LabFabric @relation(fields: [fabricId], references: [id], onDelete: Cascade)
+
+  @@unique([fabricId, role])
+  @@unique([fabricId, hostname])
+  @@map("lab_nodes")
+}
+
+model LabScenario {
+  id          String          @id @default(uuid()) @db.Uuid
+  fabricId    String          @map("fabric_id") @db.Uuid
+  kind        LabScenarioKind
+  label       String
+  ready       Boolean         @default(false)
+  plan        String
+  observation String
+
+  fabric LabFabric @relation(fields: [fabricId], references: [id], onDelete: Cascade)
+
+  @@unique([fabricId, kind])
+  @@map("lab_scenarios")
+}
+
+model LabPromotion {
+  id                  String          @id @default(uuid()) @db.Uuid
+  organizationId      String          @map("organization_id") @db.Uuid
+  fabricId            String          @map("fabric_id") @db.Uuid
+  actorId             String          @map("actor_id") @db.Uuid
+  sourcePromotionId   String?         @unique @map("source_promotion_id") @db.Uuid
+  sourceEnvironment   Environment     @map("source_environment")
+  targetEnvironment   Environment     @map("target_environment")
+  targetSiteId        String          @map("target_site_id") @db.Uuid
+  phase               PromotionPhase  @default(PREPARED)
+  configuration       String
+  applied             Boolean         @default(false)
+  pushed              Boolean         @default(false)
+  confirmProduction   Boolean         @default(false) @map("confirm_production")
+  validatedAt         DateTime?       @map("validated_at")
+  promotedAt          DateTime?       @map("promoted_at")
+  createdAt           DateTime        @default(now()) @map("created_at")
+
+  organization    Organization  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  fabric          LabFabric     @relation(fields: [fabricId], references: [id], onDelete: Restrict)
+  actor           User          @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  targetSite      Site          @relation(fields: [targetSiteId], references: [id], onDelete: Restrict)
+  sourcePromotion LabPromotion? @relation("PromotionChain", fields: [sourcePromotionId], references: [id], onDelete: Restrict)
+  followUp        LabPromotion? @relation("PromotionChain")
+
+  @@index([organizationId, createdAt])
+  @@index([fabricId])
+  @@index([targetSiteId])
+  @@map("lab_promotions")
+}
+
+model AuditEvent {
+  id             String   @id @default(uuid()) @db.Uuid
+  actorId        String?  @map("actor_id") @db.Uuid
+  organizationId String?  @map("organization_id") @db.Uuid
+  action         String
+  resourceType   String   @map("resource_type")
+  resourceId     String?  @map("resource_id")
+  metadata       Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([resourceType, resourceId])
+  @@map("audit_events")
+}

@@ -1,0 +1,12 @@
+node_modules/
+.next/
+.nuxt/
+.output/
+dist/
+coverage/
+generated/
+.env
+.env.local
+*.log
+.DS_Store
+apps/api/generated/
